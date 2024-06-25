@@ -7,6 +7,7 @@ use ark_relations::r1cs::{
     ConstraintMatrices, ConstraintSystemRef, Result as R1CSResult, SynthesisError,
 };
 use core::ops::{AddAssign, Deref};
+use ark_std::time::Instant;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -158,6 +159,8 @@ impl R1CSToQAP for LibsnarkReduction {
         let domain_size = domain.size();
         let zero = F::zero();
 
+        let start = Instant::now();
+
         let mut a = vec![zero; domain_size];
         let mut b = vec![zero; domain_size];
 
@@ -210,6 +213,10 @@ impl R1CSToQAP for LibsnarkReduction {
         result = domain.mul_polynomials_in_evaluation_domain(&result, &t);
 
         domain.ifft_in_place(&mut result);
+
+        let end = Instant::now();
+        println!("witness_map_from_matrices took {:?}", end - start);
+
         Ok(result)
     }
 
