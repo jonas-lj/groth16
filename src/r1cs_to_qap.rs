@@ -188,33 +188,24 @@ impl R1CSToQAP for LibsnarkReduction {
 
         let mut a_prime = domain.ifft(&a);
         let mut b_prime = domain.ifft(&b);
-        let mut c_prime = domain.ifft(&c);
+        domain.ifft_in_place(&mut c);
 
         formal_derivative_in_place(&mut a_prime);
         formal_derivative_in_place(&mut b_prime);
-        formal_derivative_in_place(&mut c_prime);
+        formal_derivative_in_place(&mut c);
 
         domain.fft_in_place(&mut a_prime);
         domain.fft_in_place(&mut b_prime);
-        domain.fft_in_place(&mut c_prime);
+        domain.fft_in_place(&mut c);
 
-        let mut result = domain.mul_polynomials_in_evaluation_domain(&a, &b_prime);
+        compute_l_hopital(&mut a, &a_prime, &b, &b_prime, &c, &domain.group_gen());
 
-        cfg_iter_mut!(result).zip(domain.mul_polynomials_in_evaluation_domain(&a_prime, &b))
-            .zip(c_prime)
-            .for_each(|((a_b_prime_i, a_prime_b_i), c_prime_i)| {
-                *a_b_prime_i += &a_prime_b_i;
-                *a_b_prime_i -= &c_prime_i;
-        });
-
-        divide_by_t_in_place(&mut result, &domain.group_gen());
-
-        domain.ifft_in_place(&mut result);
+        domain.ifft_in_place(&mut a);
 
         let end = Instant::now();
         println!("witness_map_from_matrices took {:?}", end - start);
 
-        Ok(result)
+        Ok(a)
     }
 
     fn h_query_scalars<F: PrimeField, D: EvaluationDomain<F>>(
@@ -230,11 +221,16 @@ impl R1CSToQAP for LibsnarkReduction {
     }
 }
 
-fn divide_by_t_in_place<F: PrimeField>(a: &mut Vec<F>, omega: &F) {
+fn compute_l_hopital<F: PrimeField>(a: &mut [F], a_prime: &[F], b: &[F], b_prime: &[F], c_prime: &[F], omega: &F) {
     let n = a.len();
     let mut t_i = F::from(n as u128).inverse().unwrap();
     for i in 0..n {
-        a[i] *= t_i;
+        a[i] *= b_prime[i];
+        a[i] += b[i] * a_prime[i] - c_prime[i];
+        a[i] *= &t_i;
+
+        // t_i = omega^{i-1} / n
+
         if i < n-1 {
             t_i *= omega;
         }
