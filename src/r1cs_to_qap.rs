@@ -190,18 +190,15 @@ impl R1CSToQAP for LibsnarkReduction {
         let mut b_prime = domain.ifft(&b);
         let mut c_prime = domain.ifft(&c);
 
-        let mut v = vec![&mut a_prime, &mut b_prime, &mut c_prime];
-
-        cfg_iter_mut!(v).for_each(|v| {
-            formal_derivative_in_place(v);
-        });
+        formal_derivative_in_place(&mut a_prime);
+        formal_derivative_in_place(&mut b_prime);
+        formal_derivative_in_place(&mut c_prime);
 
         domain.fft_in_place(&mut a_prime);
         domain.fft_in_place(&mut b_prime);
         domain.fft_in_place(&mut c_prime);
 
         let mut result = domain.mul_polynomials_in_evaluation_domain(&a, &b_prime);
-        let t = vanishing_polynomial_prime(domain_size, domain.group_gen());
 
         cfg_iter_mut!(result).zip(domain.mul_polynomials_in_evaluation_domain(&a_prime, &b))
             .zip(c_prime)
@@ -210,7 +207,7 @@ impl R1CSToQAP for LibsnarkReduction {
                 *a_b_prime_i -= &c_prime_i;
         });
 
-        result = domain.mul_polynomials_in_evaluation_domain(&result, &t);
+        divide_by_t_in_place(&mut result, &domain.group_gen());
 
         domain.ifft_in_place(&mut result);
 
@@ -233,22 +230,26 @@ impl R1CSToQAP for LibsnarkReduction {
     }
 }
 
+fn divide_by_t_in_place<F: PrimeField>(a: &mut Vec<F>, omega: &F) {
+    let n = a.len();
+    let mut t_i = F::from(n as u128).inverse().unwrap();
+    for i in 0..n {
+        a[i] *= t_i;
+        if i < n-1 {
+            t_i *= omega;
+        }
+    }
+}
+
 fn formal_derivative_in_place<F: PrimeField>(a: &mut Vec<F>) {
     let n = a.len();
     a.rotate_left(1);
     a[n - 1] = F::zero();
-    cfg_iter_mut!(a[..(n-1)]).enumerate().for_each(|(i, a_i)| *a_i *= F::from((i + 1) as u128));
+    let mut c = F::from(2u128);
+    for i in 1..n-1 {
+        a[i] *= &c;
+        if i < n-2 {
+            c += F::one();
+        }
+    }
 }
-
-fn vanishing_polynomial_prime<F: PrimeField>(n: usize, omega: F) -> Vec<F> {
-    // In the baseline implementation, t is not precomputed, so we don't do it here either.
-    let mut t = (2..n).fold(vec![F::one(), omega], |mut acc, _| {
-        let last = *acc.last().unwrap();
-        acc.push(last * omega);
-        acc
-    });
-    let n_inverse = F::from(n as u128).inverse().unwrap();
-    cfg_iter_mut!(t).for_each(|t_i| *t_i *= n_inverse);
-    t
-}
-
